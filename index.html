@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SNN Digit Lab</title>
+<style>
+*{box-sizing:border-box} body{margin:0;background:#0e1726;color:#eaf2fc;font:16px/1.5 system-ui,sans-serif} main{max-width:920px;margin:auto;padding:clamp(20px,5vw,52px)} header{border-bottom:1px solid #344458;margin-bottom:24px;padding-bottom:20px} h1,h2,p{margin:0} h1{font-size:clamp(2.2rem,7vw,4rem);letter-spacing:-.065em;line-height:1.05;margin-bottom:10px} h2{font-size:1.15rem;margin-bottom:12px} p{color:#b3c4d9} .layout{display:grid;grid-template-columns:1fr 1fr;gap:16px} section{min-width:0;background:#172437;border:1px solid #344458;border-radius:16px;padding:20px} label{display:block;margin-top:14px} select,button{font:inherit} select{width:100%;border:1px solid #62758c;background:#101b2b;color:#eef6ff;border-radius:8px;padding:10px;margin-top:6px} button{width:100%;min-height:48px;margin-top:12px;border-radius:9px;border:1px solid #62758c;background:#21334a;color:#eff7ff;font-weight:650} button.primary{background:#79eed2;color:#102722;border-color:#79eed2} button:disabled{opacity:.5} button:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid #f8ca79;outline-offset:3px} #status{margin-top:14px;overflow-wrap:anywhere} .reading{display:grid;grid-template-columns:1fr 104px;gap:16px;align-items:start;margin-top:14px} #digit{font-size:3rem;line-height:1;color:#79eed2;font-weight:750} img{width:104px;aspect-ratio:1;image-rendering:pixelated;border:1px solid #62758c;border-radius:5px} .caption{font-size:.875rem;text-align:center} dl{display:grid;grid-template-columns:1fr auto;gap:6px;margin:12px 0} dd{margin:0;font-variant-numeric:tabular-nums} .note{margin-top:12px} @media(max-width:620px){.layout{grid-template-columns:1fr}}
+</style>
+<main>
+<header><h1>SNN Digit Lab</h1><p>Photograph a handwritten 0 or 1 to run your computer’s all-LIF classifier.</p></header>
+<div class="layout">
+<section><h2>Capture</h2><p>Use a single digit on plain paper. Fill the frame and avoid shadows.</p>
+<label for="expected">Expected digit</label>
+<select id="expected"><option value="">Unknown</option><option>0</option><option>1</option></select>
+<label><input type="checkbox" id="light"> Light ink on dark paper</label>
+<input id="camera" type="file" accept="image/*" capture="environment" hidden>
+<input id="gallery" type="file" accept="image/*" hidden>
+<button class="primary" type="button" id="take">Take a photo</button>
+<button type="button" id="choose">Choose a photo</button>
+<p id="status" role="status">Photos upload automatically after you select or accept them.</p>
+</section>
+<section aria-live="polite"><h2>Classification</h2><p id="empty">Your prediction and 8 × 8 input will appear here.</p>
+<div id="result" hidden>
+<div class="reading"><div><p>Predicted digit</p><div id="digit"></div></div><div><img id="preview" alt="Grayscale grid of the classifier input"><p class="caption">8 × 8 input</p></div></div>
+<dl><dt>Digit 0 spikes</dt><dd id="zero"></dd><dt>Digit 1 spikes</dt><dd id="one"></dd></dl>
+<p id="verification"></p><p class="note" id="tie" hidden>Equal spike counts. The classifier defaults to 0.</p>
+</div></section></div>
+</main>
+<script>
+const byId = id => document.getElementById(id);
+const pairKey = location.hash.slice(1);
+const status = byId('status');
+const buttons = ['take', 'choose'].map(byId);
+const result = byId('result');
+for (const [button, input] of [['take', 'camera'], ['choose', 'gallery']]) {
+  byId(button).onclick = () => byId(input).click();
+  byId(input).onchange = async event => {
+    const photo = event.target.files[0];
+    event.target.value = '';
+    if (!photo) return;
+    result.hidden = true;
+    byId('empty').hidden = false;
+    buttons.forEach(control => control.disabled = true);
+    status.textContent = 'Sending to your computer…';
+    try {
+      const query = new URLSearchParams({
+        expected: byId('expected').value,
+        light: byId('light').checked ? '1' : '0'
+      });
+      const response = await fetch('/classify?' + query, {
+        method: 'POST', headers: {'X-Digit-Key': pairKey}, body: photo
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error);
+      byId('digit').textContent = data.prediction;
+      byId('zero').textContent = data.spikes[0];
+      byId('one').textContent = data.spikes[1];
+      byId('preview').src = data.preview;
+      byId('tie').hidden = !data.tie;
+      byId('verification').textContent = data.expected === null ? '' :
+        'Expected ' + data.expected + ' · ' + (data.match ? 'Match' : 'Mismatch');
+      byId('empty').hidden = true;
+      result.hidden = false;
+      status.textContent = 'Photo and result saved on your computer.';
+    } catch (error) {
+      status.textContent = error.message === 'Failed to fetch' ?
+        'Could not reach your computer. Check Wi-Fi and keep the server running.' : error.message;
+    } finally {
+      buttons.forEach(control => control.disabled = false);
+    }
+  };
+}
+if (!pairKey) {
+  buttons.forEach(control => control.disabled = true);
+  status.textContent = 'Open the full URL printed on your computer, including the part after #.';
+}
+</script>
+</html>
